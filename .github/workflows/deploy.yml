@@ -37,7 +37,7 @@ jobs:
           echo "== repo root =="
           ls -la
 
-          # 優先用這次 commit 變動的 ZIP；若沒有，再全倉庫搜，不分大小寫
+          # 優先用這次 commit 變動的 ZIP；沒有就全倉庫搜尋（不分大小寫）
           ZIP=$(git show --name-only --pretty="" "$GITHUB_SHA" | grep -Eio '[^[:space:]]+\.zip' | tail -n1)
           if [ -z "$ZIP" ]; then ZIP=$(find . -maxdepth 3 -type f -iname '*.zip' | head -n1); fi
 
@@ -50,7 +50,7 @@ jobs:
           echo "== after unzip =="
           find dist -maxdepth 2 -type f | sed 's/^/ - /'
 
-          # 若多包一層且內層有 index.html，扁平化
+          # 若多包一層且內層有 index.html，就扁平化
           if [ ! -f dist/index.html ]; then
             INNER=$(find dist -mindepth 1 -maxdepth 1 -type d | head -n1 || true)
             if [ -n "$INNER" ] && [ -f "$INNER/index.html" ]; then

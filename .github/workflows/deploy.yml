@@ -1,10 +1,9 @@
 name: Deploy Pages from ZIP
-
 on:
   push:
     branches: [ main ]
-    paths: [ '**/*.zip' ]   # 任意 ZIP 變動就觸發
-  workflow_dispatch: {}      # 也可手動執行
+    paths: [ '**/*.zip' ]     # 任何 ZIP 變動就觸發
+  workflow_dispatch: {}        # 可手動執行
 
 permissions:
   contents: read
@@ -23,11 +22,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
 
       - name: Ensure unzip exists
         run: |
@@ -35,21 +31,26 @@ jobs:
             sudo apt-get update && sudo apt-get install -y unzip
           fi
 
-      - name: Find and unzip latest ZIP
+      - name: Find and unzip ZIP
         shell: bash
         run: |
-          echo "== Repo root =="
+          echo "== repo root =="
           ls -la
-          ZIP=$(git show --name-only --pretty="" $GITHUB_SHA | grep -E '\.zip$' | tail -n1)
-          if [ -z "$ZIP" ]; then ZIP=$(ls -1 *.zip 2>/dev/null | head -n1); fi
+
+          # 優先用這次 commit 變動的 ZIP；若沒有，再全倉庫搜，不分大小寫
+          ZIP=$(git show --name-only --pretty="" "$GITHUB_SHA" | grep -Eio '[^[:space:]]+\.zip' | tail -n1)
+          if [ -z "$ZIP" ]; then ZIP=$(find . -maxdepth 3 -type f -iname '*.zip' | head -n1); fi
+
           if [ -z "$ZIP" ]; then echo "❌ 找不到 ZIP"; exit 1; fi
           echo "Using ZIP: $ZIP"
+
           rm -rf dist && mkdir -p dist
           unzip -o "$ZIP" -d dist
-          echo "== After unzip =="
+
+          echo "== after unzip =="
           find dist -maxdepth 2 -type f | sed 's/^/ - /'
 
-          # 若多包一層資料夾，且內層有 index.html，就把內層搬到 dist 根
+          # 若多包一層且內層有 index.html，扁平化
           if [ ! -f dist/index.html ]; then
             INNER=$(find dist -mindepth 1 -maxdepth 1 -type d | head -n1 || true)
             if [ -n "$INNER" ] && [ -f "$INNER/index.html" ]; then
@@ -59,18 +60,13 @@ jobs:
             fi
           fi
 
-          # 安全起見，禁用 Jekyll
           touch dist/.nojekyll
-
-          echo "== Final dist =="
           ls -la dist
           test -f dist/index.html || (echo "❌ dist/index.html 不存在" && exit 1)
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4

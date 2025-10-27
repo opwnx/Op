@@ -1,0 +1,76 @@
+name: Deploy Pages from ZIP
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ '**/*.zip' ]   # 任意 ZIP 變動就觸發
+  workflow_dispatch: {}      # 也可手動執行
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Ensure unzip exists
+        run: |
+          if ! command -v unzip >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y unzip
+          fi
+
+      - name: Find and unzip latest ZIP
+        shell: bash
+        run: |
+          echo "== Repo root =="
+          ls -la
+          ZIP=$(git show --name-only --pretty="" $GITHUB_SHA | grep -E '\.zip$' | tail -n1)
+          if [ -z "$ZIP" ]; then ZIP=$(ls -1 *.zip 2>/dev/null | head -n1); fi
+          if [ -z "$ZIP" ]; then echo "❌ 找不到 ZIP"; exit 1; fi
+          echo "Using ZIP: $ZIP"
+          rm -rf dist && mkdir -p dist
+          unzip -o "$ZIP" -d dist
+          echo "== After unzip =="
+          find dist -maxdepth 2 -type f | sed 's/^/ - /'
+
+          # 若多包一層資料夾，且內層有 index.html，就把內層搬到 dist 根
+          if [ ! -f dist/index.html ]; then
+            INNER=$(find dist -mindepth 1 -maxdepth 1 -type d | head -n1 || true)
+            if [ -n "$INNER" ] && [ -f "$INNER/index.html" ]; then
+              echo "Flattening $INNER -> dist"
+              shopt -s dotglob
+              mv "$INNER"/* dist/
+            fi
+          fi
+
+          # 安全起見，禁用 Jekyll
+          touch dist/.nojekyll
+
+          echo "== Final dist =="
+          ls -la dist
+          test -f dist/index.html || (echo "❌ dist/index.html 不存在" && exit 1)
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
